@@ -1,0 +1,50 @@
+name: Release
+
+# Builds SeriousFunLauncher.exe and publishes it as the latest GitHub release.
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $version = "1.0.${{ github.run_number }}"
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          dotnet build SeriousFunLauncher.csproj -c Release -p:Version=$version
+
+      - name: Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "v$VERSION" "bin/Release/SeriousFunLauncher.exe" \
+            --target "$GITHUB_SHA" \
+            --title "SeriousFun Launcher v$VERSION" \
+            --notes "Download SeriousFunLauncher.exe and run it. Windows 10/11; no install needed." \
+            --latest
