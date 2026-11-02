@@ -3,6 +3,10 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Net.Security;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -62,10 +66,9 @@ namespace SeriousFunLauncher
             {
                 _reporter.Status("Finding the latest UO Classic installer...");
                 string installerUrl = await FindInstallerUrlAsync();
-                string installerPath = Path.Combine(tempDirectory, Path.GetFileName(new Uri(installerUrl).LocalPath));
 
                 _reporter.Status("Downloading the UO Classic installer...");
-                await Downloader.DownloadFileAsync(installerUrl, installerPath, _reporter, cancellationToken);
+                string installerPath = await DownloadInstallerAsync(installerUrl, tempDirectory, cancellationToken);
 
                 _reporter.Status("Unpacking the UO patcher...");
                 _reporter.Progress(null);
@@ -160,6 +163,101 @@ namespace SeriousFunLauncher
             }
 
             return LauncherConstants.UoInstallerFallbackUrl;
+        }
+
+        /// <summary>
+        /// Downloads the installer and verifies it. Tries the advertised version first, then the pinned one.
+        /// </summary>
+        /// <remarks>
+        /// EA's installer is not code-signed, and its download server's certificate has lapsed before
+        /// (it expired 2026-10-31). An expired certificate on that one host is tolerated, but only for an
+        /// installer whose SHA-256 is pinned below; a pinned installer must match regardless.
+        /// </remarks>
+        private async Task<string> DownloadInstallerAsync(string advertisedUrl, string tempDirectory, CancellationToken cancellationToken)
+        {
+            var urls = new List<string> { advertisedUrl };
+            if (!string.Equals(advertisedUrl, LauncherConstants.UoInstallerFallbackUrl, StringComparison.OrdinalIgnoreCase))
+            {
+                urls.Add(LauncherConstants.UoInstallerFallbackUrl);
+            }
+
+            Exception lastError = null;
+            foreach (string url in urls)
+            {
+                string fileName = Path.GetFileName(new Uri(url).LocalPath);
+                string path = Path.Combine(tempDirectory, fileName);
+                bool acceptedExpiredCertificate = false;
+
+                var handler = new HttpClientHandler
+                {
+                    ServerCertificateCustomValidationCallback = (request, certificate, chain, errors) =>
+                    {
+                        if (errors == SslPolicyErrors.None)
+                        {
+                            return true;
+                        }
+
+                        if (IsOnlyExpired(request.RequestUri, errors, chain))
+                        {
+                            acceptedExpiredCertificate = true;
+                            return true;
+                        }
+
+                        return false;
+                    },
+                };
+
+                try
+                {
+                    using (HttpClient client = Downloader.CreateClient(handler))
+                    {
+                        await Downloader.DownloadFileAsync(client, url, path, _reporter, cancellationToken);
+                    }
+
+                    string hash = ComputeSha256(path);
+                    if (LauncherConstants.KnownInstallerSha256.TryGetValue(fileName, out string expected))
+                    {
+                        if (!string.Equals(hash, expected, StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new InvalidOperationException($"The downloaded {fileName} does not match its known checksum, so it was not used.");
+                        }
+                    }
+                    else if (acceptedExpiredCertificate)
+                    {
+                        throw new InvalidOperationException(
+                            $"EA's download server has an expired security certificate, and {fileName} is a version this launcher can't verify.");
+                    }
+
+                    return path;
+                }
+                catch (Exception ex) when (!(ex is OperationCanceledException))
+                {
+                    lastError = ex;
+                }
+            }
+
+            throw new InvalidOperationException("Could not download the UO Classic installer: " + lastError?.GetBaseException().Message, lastError);
+        }
+
+        private static bool IsOnlyExpired(Uri uri, SslPolicyErrors errors, X509Chain chain)
+        {
+            if (errors != SslPolicyErrors.RemoteCertificateChainErrors || chain == null ||
+                !string.Equals(uri?.Host, LauncherConstants.UoInstallerHost, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return chain.ChainStatus.Length > 0 &&
+                   chain.ChainStatus.All(status => status.Status == X509ChainStatusFlags.NotTimeValid);
+        }
+
+        private static string ComputeSha256(string path)
+        {
+            using (var sha = SHA256.Create())
+            using (FileStream stream = File.OpenRead(path))
+            {
+                return BitConverter.ToString(sha.ComputeHash(stream)).Replace("-", string.Empty);
+            }
         }
 
         private static async Task ExtractPatcherAsync(string installerPath, string directory)

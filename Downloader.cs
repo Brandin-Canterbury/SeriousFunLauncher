@@ -11,23 +11,32 @@ namespace SeriousFunLauncher
     {
         public static readonly HttpClient Http = CreateClient();
 
-        private static HttpClient CreateClient()
+        public static HttpClient CreateClient(HttpMessageHandler handler = null)
         {
             ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
 
-            var client = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+            var client = handler != null ? new HttpClient(handler, true) : new HttpClient();
+            client.Timeout = TimeSpan.FromMinutes(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd(LauncherConstants.UserAgent);
             return client;
         }
 
         /// <summary>Downloads <paramref name="url"/> to <paramref name="destination"/>, reporting progress.</summary>
+        public static Task DownloadFileAsync(
+            string url,
+            string destination,
+            StatusReporter reporter,
+            CancellationToken cancellationToken) =>
+            DownloadFileAsync(Http, url, destination, reporter, cancellationToken);
+
         public static async Task DownloadFileAsync(
+            HttpClient client,
             string url,
             string destination,
             StatusReporter reporter,
             CancellationToken cancellationToken)
         {
-            using (HttpResponseMessage response = await Http.GetAsync(
+            using (HttpResponseMessage response = await client.GetAsync(
                        url,
                        HttpCompletionOption.ResponseHeadersRead,
                        cancellationToken))

@@ -224,17 +224,25 @@ namespace SeriousFunLauncher
 
         private void BrowseInto(TextBox target, string description)
         {
-            using (var dialog = new System.Windows.Forms.FolderBrowserDialog
-                   {
-                       Description = description,
-                       ShowNewFolderButton = true,
-                       SelectedPath = Directory.Exists(target.Text) ? target.Text : string.Empty,
-                   })
+            // The default folders don't exist before the first install. Create the current one so
+            // the picker opens inside it; otherwise "Select Folder" would pick its parent.
+            string current = NormalizePath(target.Text);
+            if (current != null)
             {
-                if (dialog.ShowDialog() == System.Windows.Forms.DialogResult.OK)
+                try
                 {
-                    target.Text = dialog.SelectedPath;
+                    Directory.CreateDirectory(current);
                 }
+                catch (Exception)
+                {
+                    // Unwritable or invalid; the picker falls back to the nearest existing parent.
+                }
+            }
+
+            string chosen = FolderPicker.Show(this, description, current ?? target.Text);
+            if (chosen != null)
+            {
+                target.Text = chosen;
             }
         }
 
