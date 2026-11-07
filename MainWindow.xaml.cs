@@ -75,6 +75,7 @@ namespace SeriousFunLauncher
             }
 
             await new TazUoUpdater(_reporter).EnsureLatestAsync(_config.TazUoDirectory, cancellationToken);
+            string mapOverrides = await new ShardDataUpdater(_reporter).EnsureLatestAsync(_config.TazUoDirectory, cancellationToken);
             ClientSettingsWriter.Write(_config, UoClientInstaller.GetClientVersion(_config.UoDirectory));
 
             _reporter.Status("Starting TazUO...");
@@ -82,6 +83,7 @@ namespace SeriousFunLauncher
             {
                 WorkingDirectory = _config.TazUoDirectory,
                 UseShellExecute = false,
+                Arguments = mapOverrides != null ? $"-uofilesoverride \"{mapOverrides}\"" : "",
             })?.Dispose();
 
             if (_config.CloseOnLaunch)

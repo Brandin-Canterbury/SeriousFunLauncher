@@ -13,6 +13,11 @@ namespace SeriousFunLauncher
         public const string TazUoExecutable = "TazUO.exe";
         public const string TazUoVersionFile = "v.txt";
 
+        // The shard's edited map files are the assets of this one release (see Publish-ShardData.ps1).
+        // It must never be marked "latest": the launcher's own download link points at latest.
+        public const string ShardDataRepository = "Brandin-Canterbury/SeriousFunLauncher";
+        public const string ShardDataTag = "shard-data";
+
         // The download page is scraped for the current installer; this is the fallback.
         public const string UoDownloadPage = "https://uo.com/client-download/";
         public const string UoInstallerFallbackUrl =
